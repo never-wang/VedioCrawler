@@ -13,3 +13,4 @@ class MovieItem(scrapy.Item):
     thunder_url = scrapy.Field()
     imdb_score = scrapy.Field()
     douban_score = scrapy.Field()
+    year = scrapy.Field()

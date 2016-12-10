@@ -28,15 +28,15 @@ class MoviePipeline(object):
                 movieList.append(item)
             if wrong:
                 wrong_movie_list.append(item)
-        output = open(time.strftime("%d-%m-%Y"), 'w')
+        output = open(time.strftime("%d-%m-%Y.txt"), 'w')
         output.write(str(movieList))
         output.close()
 
-        output = open(time.strftime("%d-%m-%Y-wrong"), 'w')
+        output = open(time.strftime("%d-%m-%Y-wrong.txt"), 'w')
         output.write(str(wrong_movie_list))
         output.close()
 
-        output = open(time.strftime("%d-%m-%Y-test"), 'w')
+        output = open(time.strftime("%d-%m-%Y-test.txt"), 'w')
         output.write(str(self.movies))
         output.close()
 
