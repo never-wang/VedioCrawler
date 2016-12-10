@@ -67,7 +67,7 @@ class MovieSpider(scrapy.Spider):
         self.parse_douban_score(response, item)
         yield item
 
-        search_url = "http://www.imdb.com/find?q=" + urllib.quote_plus(file_name) + "&s=tt&ttype=ft&ref_=fn_ft"
+        search_url = "http://www.imdb.com/find?q=" + urllib.quote_plus(file_name) + "&s=tt&ref_=fn_tt"
         yield scrapy.Request(url=search_url, callback=self.parse_imdb_search, meta=meta)
 
     def parse_imdb_search(self, response):
