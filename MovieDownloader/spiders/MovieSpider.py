@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import urlparse
 
 import scrapy
 import scrapy_splash
@@ -17,7 +18,7 @@ class MovieSpider(scrapy.Spider):
 
     allowed_domains = ["ygdy8.net", "imdb.com", "douban.com"]
 
-    start_urls = [
+    start_list_urls = [
         "http://www.ygdy8.net/html/gndy/oumei/index.html",
     ]
 
@@ -28,20 +29,24 @@ class MovieSpider(scrapy.Spider):
     }
 
     def start_requests(self):
-        for url in self.start_urls:
+        for url in self.start_list_urls:
             request = scrapy.Request(url, callback=self.parse_list_page)
             yield request
 
     def parse_list_page(self, response):
+        next_page_href = response.xpath(u"//div[@class ='x']//a[.='\u4e0b\u4e00\u9875']/@href").extract()[0]
         movie_urls = response.xpath("//div[@class='co_content8']/ul//a/@href").extract()
         for movie_url in movie_urls:
             if (not movie_url.endswith("index.html")):
                 request = scrapy_splash.SplashRequest(self.ygdy_domain + movie_url, self.parse_movie_page)
             # request = scrapy.Request(self.domain + movie_url, callback=self.parse_movie_page)
+                request.meta["next_page"] = urlparse.urljoin(response.url, next_page_href)
+                request.meta["current_page"] = response.url
                 self.log(request)
-                yield request
+                # TODO
+                # yield request
 
-        # next_page_href = response.xpath(u"//div[@class ='x']/a[.='\u4e0b\u4e00\u9875']").extract()
+
         # print next_page_href
 
     def find_value(self, labels, key):
@@ -58,6 +63,7 @@ class MovieSpider(scrapy.Spider):
         year = int(self.find_value(labels, u"年　　代"))
 
         if len(file_name) == 0:
+            self.log("Movie name is empty : " + response.url, logging.WARNING)
             return
         thunder_url = response.xpath("//div[@class='co_content8']//div[@id='Zoom']//table/tbody//a/@thunderrestitle").extract()
         meta = dict()
@@ -78,7 +84,7 @@ class MovieSpider(scrapy.Spider):
         if len(hrefs) > 0 :
             href = hrefs.pop(0)
             response.meta["hrefs"] = hrefs
-            yield scrapy.Request(url="http://www.imdb.com" + href, callback=self.parse_imdb_score, meta=response.meta)
+            yield scrapy.Request(url=urlparse.urljoin(response.url, href), callback=self.parse_imdb_score, meta=response.meta)
 
     def parse_imdb_score(self, response):
         imdb_dict = dict()
