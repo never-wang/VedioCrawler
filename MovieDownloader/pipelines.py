@@ -16,6 +16,7 @@ class MoviePipeline(object):
         movieList = []
         wrong_movie_list = []
         for (name, item) in self.movies.iteritems():
+            item.save()
             qualified = False
             wrong = False
             for (key, min_score) in [("imdb_score", 7), ("douban_score", 7)]:
@@ -40,13 +41,19 @@ class MoviePipeline(object):
         output.write(str(self.movies))
         output.close()
 
+    def get_key(self, item):
+        return item["name"] + str(item["year"]) + item["type"]
+
     def process_item(self, item, spider):
-        if item["name"] in self.movies:
-            existing_item = self.movies[item["name"]]
+        if self.get_key(item) in self.movies:
+            existing_item = self.movies[self.get_key(item)]
+            for key in ["douban_score", "imdb_score"]:
+                if key in item and int(item[key]) > 0:
+                    existing_item[key] = item[key]
+            for key in ["douban_url", "imdb_url"]:
+                if key in item and len(item[key]) > 0:
+                    existing_item[key] = item[key]
         else:
-            existing_item = item
-            self.movies[item["name"]] = item
-        for key in ["douban_score", "imdb_score"]:
-            if key in item and int(item[key]) > 0 :
-                existing_item[key] = item[key]
+            self.movies[self.get_key(item)] = item
+
         return item

@@ -8,18 +8,19 @@ import urllib
 import requests
 
 from MovieDownloader.items import MovieItem
+from MovieDownloader.spiders.data import video_data
 
 
 class MovieSpider(scrapy.Spider):
     name = "movie"
 
-    ygdy_domain = "http://www.ygdy8.net"
+    ygdy_domain = "http://www.dytt8.net"
     imdb_domain = "http://www.imdb.com"
 
-    allowed_domains = ["ygdy8.net", "imdb.com", "douban.com"]
+    allowed_domains = ["dytt8.net", "imdb.com", "douban.com"]
 
     start_list_urls = [
-        "http://www.ygdy8.net/html/gndy/oumei/index.html",
+        ygdy_domain + "/html/gndy/oumei/index.html",
     ]
 
     custom_settings = {
@@ -29,6 +30,7 @@ class MovieSpider(scrapy.Spider):
     }
 
     def start_requests(self):
+        video_data.init()
         for url in self.start_list_urls:
             request = scrapy.Request(url, callback=self.parse_list_page)
             yield request
@@ -42,9 +44,8 @@ class MovieSpider(scrapy.Spider):
             # request = scrapy.Request(self.domain + movie_url, callback=self.parse_movie_page)
                 request.meta["next_page"] = urlparse.urljoin(response.url, next_page_href)
                 request.meta["current_page"] = response.url
-                self.log(request)
-                # TODO
-                # yield request
+                yield request
+                return
 
 
         # print next_page_href
@@ -65,10 +66,12 @@ class MovieSpider(scrapy.Spider):
         if len(file_name) == 0:
             self.log("Movie name is empty : " + response.url, logging.WARNING)
             return
-        thunder_url = response.xpath("//div[@class='co_content8']//div[@id='Zoom']//table/tbody//a/@thunderrestitle").extract()
+        download_url = response.xpath("//div[@class='co_content8']//div[@id='Zoom']//table/tbody//a/@thunderrestitle").extract()[0]
         meta = dict()
 
-        item = MovieItem(name = file_name, thunder_url = thunder_url, year = year)
+        item = MovieItem(name = file_name, download_url = download_url, year = year, type=video_data.VIDEO_TYPE_MOVIE)
+        if item.exists():
+            return
         meta['item'] = item
 
         search_url="https://api.douban.com/v2/movie/search?q=" + urllib.quote_plus(file_name)
@@ -87,6 +90,8 @@ class MovieSpider(scrapy.Spider):
             yield scrapy.Request(url=urlparse.urljoin(response.url, href), callback=self.parse_imdb_score, meta=response.meta)
 
     def parse_imdb_score(self, response):
+        imdb_url = urlparse.urlsplit(response.url).geturl()
+
         imdb_dict = dict()
         try:
             title = response.xpath("//h1[@itemprop='name']/text()").extract().strip()
@@ -102,6 +107,7 @@ class MovieSpider(scrapy.Spider):
         if self.match(imdb_dict, "title", item, "name") and self.match(imdb_dict, "year", item, "year"):
             score = response.xpath("//div[@class='ratings_wrapper']//span[@itemprop='ratingValue']/text()").extract()[0]
             item['imdb_score'] = float(score)
+            item['imdb_url'] = imdb_url
             yield item
         else:
             hrefs = response.meta["hrefs"]
@@ -114,11 +120,13 @@ class MovieSpider(scrapy.Spider):
     def parse_douban_score(self, response, item):
         try :
             json_response = response.json()
+            print json_response
             subjects = json_response["subjects"]
             for subject in subjects:
                 if self.match(subject, "original_title", item, "name") and self.match(subject, "year", item, "y"):
                     score = subject["rating"]["average"]
                     item['douban_score'] = float(score)
+                    item['douban_url'] = subject["alt"]
                     return
         except Exception, e:
             self.log(e, logging.ERROR)
