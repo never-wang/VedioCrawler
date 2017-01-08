@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 import logging
+import traceback
 import urlparse
 
+import datetime
 import scrapy
 import scrapy_splash
 import urllib
 import requests
+import sys
 
 from MovieDownloader.items import MovieItem
 from MovieDownloader.spiders.data import video_data
@@ -29,6 +32,10 @@ class MovieSpider(scrapy.Spider):
         }
     }
 
+    page_url_set = set()
+    has_new_movie = False
+    count = 0
+
     def start_requests(self):
         video_data.init()
         for url in self.start_list_urls:
@@ -36,16 +43,22 @@ class MovieSpider(scrapy.Spider):
             yield request
 
     def parse_list_page(self, response):
+        self.count  += 1
+        if self.count > 3:
+            return
+        self.has_new_movie = False
+        self.page_url_set.clear()
         next_page_href = response.xpath(u"//div[@class ='x']//a[.='\u4e0b\u4e00\u9875']/@href").extract()[0]
         movie_urls = response.xpath("//div[@class='co_content8']/ul//a/@href").extract()
         for movie_url in movie_urls:
             if (not movie_url.endswith("index.html")):
-                request = scrapy_splash.SplashRequest(self.ygdy_domain + movie_url, self.parse_movie_page)
+                url = urlparse.urljoin(response.url, movie_url)
+                self.page_url_set.add(url)
+                request = scrapy_splash.SplashRequest(url, self.parse_movie_page)
             # request = scrapy.Request(self.domain + movie_url, callback=self.parse_movie_page)
                 request.meta["next_page"] = urlparse.urljoin(response.url, next_page_href)
                 request.meta["current_page"] = response.url
                 yield request
-                return
 
 
         # print next_page_href
@@ -57,30 +70,69 @@ class MovieSpider(scrapy.Spider):
                 return label[(index + len(key)):].strip()
         return ""
 
-    def parse_movie_page(self, response):
-        labels = response.xpath("//div[@class='co_content8']//p").extract()[0].split("<br>")
+    def do_parse_movie_page(self, response):
+        if response.url == "http://www.dytt8.net/html/gndy/dyzz/20161217/52754.html":
+            output = open("test.html", "w")
+            output.write(response.body)
+            output.close()
 
-        file_name = self.find_value(labels, u"片　　名")
-        year = int(self.find_value(labels, u"年　　代"))
+        contents = response.xpath("//div[@class='co_content8']//p").extract()
 
+        file_name = ""
+        year = 0
+        startTime = datetime.datetime.now()
+        for content in contents:
+            labels = content.split("<br>")
+            try:
+                file_name = self.find_value(labels, u"片　　名")
+                self.log(response.url + ", year : " + str(self.find_value(labels, u"年　　代")))
+                year = int(self.find_value(labels, u"年　　代"))
+                if (len(file_name) > 0):
+                    break
+            except:
+                pass
+
+        self.log("fuck use time : " + str(datetime.datetime.now() - startTime))
         if len(file_name) == 0:
             self.log("Movie name is empty : " + response.url, logging.WARNING)
-            return
-        download_url = response.xpath("//div[@class='co_content8']//div[@id='Zoom']//table/tbody//a/@thunderrestitle").extract()[0]
+            return None, None
+        if (year == 0):
+            self.log("Movie year is zero : " + response.url, logging.WARNING)
+        download_url = \
+            response.xpath("//div[@class='co_content8']//div[@id='Zoom']//table/tbody//a/@thunderrestitle").extract()[0]
         meta = dict()
 
-        item = MovieItem(name = file_name, download_url = download_url, year = year, type=video_data.VIDEO_TYPE_MOVIE)
-        if item.exists():
-            return
-        meta['item'] = item
+        item = MovieItem(name=file_name, download_url=download_url, year=year, type=video_data.VIDEO_TYPE_MOVIE)
+        if not item.exists():
+            meta['item'] = item
 
-        search_url="https://api.douban.com/v2/movie/search?q=" + urllib.quote_plus(file_name)
-        response = requests.get(search_url)
-        self.parse_douban_score(response, item)
-        yield item
+            try:
+                search_url = "https://api.douban.com/v2/movie/search?q=" + urllib.quote_plus(file_name)
+                douban_response = requests.get(search_url)
+                self.parse_douban_score(douban_response, item)
+            except Exception, e:
+                traceback.print_exception(*sys.exc_info())
 
-        search_url = "http://www.imdb.com/find?q=" + urllib.quote_plus(file_name) + "&s=tt&ref_=fn_tt"
-        yield scrapy.Request(url=search_url, callback=self.parse_imdb_search, meta=meta)
+            search_url = "http://www.imdb.com/find?q=" + urllib.quote_plus(file_name) + "&s=tt&ref_=fn_tt"
+            return scrapy.Request(url=search_url, callback=self.parse_imdb_search, meta=meta), item
+
+        return None, None
+
+    def parse_movie_page(self, response):
+
+        try:
+            (item, request) = self.do_parse_movie_page(response)
+            if item is not None:
+                self.has_new_movie = True
+                yield item
+            if request is not None:
+                yield request
+        except Exception, e:
+            traceback.print_exception(*sys.exc_info())
+
+        self.page_url_set.remove(response.url)
+        if len(self.page_url_set) == 0 and self.has_new_movie:
+            yield scrapy.Request(url=response.meta["next_page"], callback=self.parse_list_page)
 
     def parse_imdb_search(self, response):
         hrefs = response.xpath("//div[@class='findSection']//td[@class='result_text']/a/@href").extract()
@@ -120,7 +172,6 @@ class MovieSpider(scrapy.Spider):
     def parse_douban_score(self, response, item):
         try :
             json_response = response.json()
-            print json_response
             subjects = json_response["subjects"]
             for subject in subjects:
                 if self.match(subject, "original_title", item, "name") and self.match(subject, "year", item, "y"):

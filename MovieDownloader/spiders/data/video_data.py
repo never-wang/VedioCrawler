@@ -30,12 +30,15 @@ class VideoData:
         self.imdb_url = imdb_url
 
     def save(self):
-        cursor = conn.cursor()
-        sql = "INSERT into %s VALUES ('%s', %d, '%s', '%s', %f, '%s', %f, '%s')" % \
-              (table_name, self.name, self.year, self.type, self.download_url,
-               self.douban_score, self.douban_url, self.imdb_score, self.imdb_url)
-        cursor.execute(sql)
-        conn.commit()
+        try:
+            cursor = conn.cursor()
+            sql = "INSERT into %s VALUES ('%s', %d, '%s', '%s', %f, '%s', %f, '%s')" % \
+                (table_name, self.name, self.year, self.type, self.download_url,
+                self.douban_score, self.douban_url, self.imdb_score, self.imdb_url)
+            cursor.execute(sql)
+            conn.commit()
+        except sqlite3.IntegrityError :
+            pass
 
     def __eq__(self, other):
         return (other != None and isinstance(other, VideoData) and
